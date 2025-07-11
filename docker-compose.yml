@@ -1,0 +1,179 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database (Azure Database for PostgreSQL compatible)
+  postgres:
+    image: postgres:14
+    container_name: cherry-vision-db
+    environment:
+      POSTGRES_DB: cherry_vision
+      POSTGRES_USER: dbadmin
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-devpassword}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dbadmin -d cherry_vision"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis Cache (Azure Cache for Redis compatible)
+  redis:
+    image: redis:7.0-alpine
+    container_name: cherry-vision-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # FastAPI Backend Service
+  api:
+    build:
+      context: .
+      dockerfile: deployment/docker/Dockerfile.api
+    container_name: cherry-vision-api
+    environment:
+      - DATABASE_URL=postgresql://dbadmin:${DB_PASSWORD:-devpassword}@postgres:5432/cherry_vision
+      - REDIS_URL=redis://redis:6379/0
+      - AZURE_STORAGE_CONNECTION_STRING=${AZURE_STORAGE_CONNECTION_STRING}
+      - AZURE_ML_WORKSPACE_NAME=${AZURE_ML_WORKSPACE_NAME}
+      - AZURE_SUBSCRIPTION_ID=${AZURE_SUBSCRIPTION_ID}
+      - AZURE_RESOURCE_GROUP=${AZURE_RESOURCE_GROUP}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./src:/app/src
+      - ./config:/app/config
+      - ./data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: uvicorn src.cloud.api.main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # React Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: ../deployment/docker/Dockerfile.frontend
+      target: development
+    container_name: cherry-vision-frontend
+    environment:
+      - REACT_APP_API_BASE_URL=http://localhost:8000
+      - REACT_APP_AZURE_APP_ID=${AZURE_APP_ID}
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+    depends_on:
+      - api
+    command: npm start
+
+  # Celery Worker for Background Tasks
+  worker:
+    build:
+      context: .
+      dockerfile: deployment/docker/Dockerfile.api
+    container_name: cherry-vision-worker
+    environment:
+      - DATABASE_URL=postgresql://dbadmin:${DB_PASSWORD:-devpassword}@postgres:5432/cherry_vision
+      - REDIS_URL=redis://redis:6379/0
+      - AZURE_STORAGE_CONNECTION_STRING=${AZURE_STORAGE_CONNECTION_STRING}
+      - AZURE_ML_WORKSPACE_NAME=${AZURE_ML_WORKSPACE_NAME}
+    volumes:
+      - ./src:/app/src
+      - ./config:/app/config
+      - ./data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A src.cloud.services.celery_app worker --loglevel=info
+
+  # Celery Beat Scheduler
+  scheduler:
+    build:
+      context: .
+      dockerfile: deployment/docker/Dockerfile.api
+    container_name: cherry-vision-scheduler
+    environment:
+      - DATABASE_URL=postgresql://dbadmin:${DB_PASSWORD:-devpassword}@postgres:5432/cherry_vision
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./src:/app/src
+      - ./config:/app/config
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A src.cloud.services.celery_app beat --loglevel=info
+
+  # Azurite (Azure Storage Emulator for local development)
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:latest
+    container_name: cherry-vision-azurite
+    ports:
+      - "10000:10000"  # Blob service
+      - "10001:10001"  # Queue service
+      - "10002:10002"  # Table service
+    volumes:
+      - azurite_data:/workspace
+    command: azurite --blobHost 0.0.0.0 --queueHost 0.0.0.0 --tableHost 0.0.0.0 --location /workspace --debug /workspace/debug.log
+
+  # Grafana for Monitoring
+  grafana:
+    image: grafana/grafana:10.1.0
+    container_name: cherry-vision-grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+
+  # Prometheus for Metrics Collection
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    container_name: cherry-vision-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+
+volumes:
+  postgres_data:
+  redis_data:
+  azurite_data:
+  grafana_data:
+  prometheus_data:
+
+networks:
+  default:
+    name: cherry-vision-network 

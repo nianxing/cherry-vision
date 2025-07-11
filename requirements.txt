@@ -1,0 +1,66 @@
+# Cherry Vision - Requirements File
+# Core AI/ML Dependencies
+torch>=2.0.0
+torchvision>=0.15.0
+ultralytics==8.0.196
+timm==0.9.7
+scikit-learn==1.3.0
+numpy==1.24.3
+opencv-python==4.8.0
+pillow==8.3.2
+albumentations==1.3.1
+
+# Azure Cloud Services
+azure-ai-ml==1.10.0
+azure-storage-blob==12.17.0
+azure-identity==1.14.0
+azure-servicebus==7.11.0
+azure-functions==1.18.0
+azure-cosmos==4.5.0
+
+# Database
+psycopg2-binary==2.9.7
+sqlalchemy==2.0.20
+alembic==1.11.3
+
+# Web Framework
+fastapi==0.103.1
+uvicorn[standard]==0.23.2
+pydantic==2.3.0
+python-jose[cryptography]==3.3.0
+python-multipart==0.0.6
+
+# Background Tasks
+celery==5.3.1
+redis==4.6.0
+
+# Data Processing
+pandas==2.0.3
+matplotlib>=3.2.2
+seaborn==0.12.2
+
+# Hardware Integration
+PySpin==3.0.0.118  # FLIR Camera SDK
+pyserial==3.5       # Serial communication
+dji-sdk==4.16       # DJI Drone SDK
+
+# Edge Computing (Jetson Nano specific)
+tensorrt==8.2.1.8; platform_machine=="aarch64"
+
+# Development Tools
+pytest==7.4.2
+pytest-cov==4.1.0
+black==23.7.0
+flake8==6.0.0
+mypy==1.5.1
+
+# Monitoring & Logging
+prometheus-client==0.17.1
+structlog==23.1.0
+
+# Utilities
+click==8.1.7
+python-dotenv==1.0.0
+pyyaml==6.0.1
+requests==2.31.0
+aiofiles==23.2.1 
